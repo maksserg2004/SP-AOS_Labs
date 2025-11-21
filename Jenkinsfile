@@ -9,38 +9,26 @@ pipeline {
         }
         
         stage('Test RPM on Fedora') {
-            agent {
-                docker {
-                    image 'fedora:latest'
-                    args '--privileged'
-                }
-            }
             steps {
                 sh '''
-                    echo "Installing RPM package..."
-                    dnf install -y rpm/count-etc-files-1.0-1.fc40.noarch.rpm
-                    
-                    echo "Running the script..."
-                    count-etc-files
+                    docker run --privileged -v ${WORKSPACE}:/workspace fedora:latest bash -c "
+                        cd /workspace
+                        dnf install -y rpm/count-etc-files-1.0-1.fc40.noarch.rpm
+                        count-etc-files
+                    "
                 '''
             }
         }
         
         stage('Test DEB on Ubuntu') {
-            agent {
-                docker {
-                    image 'ubuntu:22.04'
-                    args '--privileged'
-                }
-            }
             steps {
                 sh '''
-                    echo "Installing DEB package..."
-                    apt-get update
-                    dpkg -i deb/count-etc-files-1.0.deb || apt-get install -f -y
-                    
-                    echo "Running the script..."
-                    count-etc-files
+                    docker run --privileged -v ${WORKSPACE}:/workspace ubuntu:22.04 bash -c "
+                        cd /workspace
+                        apt-get update
+                        dpkg -i deb/count-etc-files-1.0.deb || apt-get install -f -y
+                        count-etc-files
+                    "
                 '''
             }
         }
