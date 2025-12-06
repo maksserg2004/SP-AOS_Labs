@@ -1,105 +1,59 @@
 pipeline {
     agent any
-    
+
     environment {
-        DOCKER_IMAGE = 'count-etc-files-jenkins'
+        // Використовуємо DEB-пакет, оскільки він більш поширений у базових образах
+        DEB_PACKAGE = 'deb/count-etc-files-1.0.deb'
+        SCRIPT_NAME = 'count-etc-files'
     }
-    
+
     stages {
         stage('Build Jenkins Docker Image') {
             steps {
                 script {
-                    // Build Docker image with Jenkins and build tools
+                    // Цей етап потрібен, якщо Jenkins Master не має необхідних інструментів
+                    // Але для фінального завдання ми можемо його пропустити, якщо використовуємо agent { docker { ... } }
+                    // Залишаємо для повноти, якщо користувач хоче його зберегти
                     sh '''
                         cd jenkins
-                        docker build -t ${DOCKER_IMAGE} .
+                        docker build -t count-etc-files-jenkins .
                     '''
                 }
             }
         }
-        
-        stage('Test RPM Package') {
+
+        stage('Install and Execute DEB Package') {
             agent {
+                // Використовуємо образ Debian-based, оскільки DEB-пакет для нього
                 docker {
-                    image 'fedora:latest'
+                    image 'debian:stable-slim'
+                    // Запускаємо як root, щоб мати доступ до /etc та можливість встановлювати пакети
                     args '-u root'
                 }
             }
             steps {
                 script {
                     sh '''
-                        # Install the RPM package
-                        dnf install -y rpm/count-etc-files-1.0-1.fc40.noarch.rpm
-                        
-                        # Run the script (will fail without root, but tests installation)
-                        count-etc-files || echo "Script requires root privileges (expected)"
-                        
-                        # Verify the script is installed
-                        which count-etc-files
-                        ls -la /usr/bin/count-etc-files
+                        echo "--- Updating package list and installing dependencies ---"
+                        apt-get update -y
+                        apt-get install -y wget sudo dpkg
+
+                        echo "--- Installing DEB package ---"
+                        # Встановлюємо пакет. dpkg -i може вимагати залежностей,
+                        # тому використовуємо apt-get install -f -y для їх встановлення.
+                        dpkg -i ${DEB_PACKAGE} || apt-get install -f -y
+
+                        echo "--- Verifying script installation ---"
+                        which ${SCRIPT_NAME}
+                        ls -la /usr/bin/${SCRIPT_NAME}
+
+                        echo "--- Executing the script from step 2 ---"
+                        # Виконуємо встановлений скрипт.
+                        # Він повинен вивести кількість файлів у /etc.
+                        /usr/bin/${SCRIPT_NAME}
                     '''
                 }
             }
-        }
-        
-        stage('Test DEB Package') {
-            agent {
-                docker {
-                    image 'ubuntu:latest'
-                    args '-u root'
-                }
-            }
-            steps {
-                script {
-                    sh '''
-                        # Install the DEB package
-                        apt-get update
-                        dpkg -i deb/count-etc-files-1.0.deb || apt-get install -f -y
-                        
-                        # Run the script (will fail without root, but tests installation)
-                        count-etc-files || echo "Script requires root privileges (expected)"
-                        
-                        # Verify the script is installed
-                        which count-etc-files
-                        ls -la /usr/bin/count-etc-files
-                    '''
-                }
-            }
-        }
-        
-        stage('Execute Script in Docker') {
-            agent {
-                docker {
-                    image 'fedora:latest'
-                    args '-u root'
-                }
-            }
-            steps {
-                script {
-                    sh '''
-                        # Install RPM package
-                        dnf install -y rpm/count-etc-files-1.0-1.fc40.noarch.rpm
-                        
-                        # Execute the script with root privileges
-                        echo "Executing count-etc-files script:"
-                        count-etc-files
-                    '''
-                }
-            }
-        }
-    }
-    
-    post {
-        success {
-            echo 'Pipeline completed successfully!'
-            echo 'RPM and DEB packages tested and script executed.'
-        }
-        failure {
-            echo 'Pipeline failed. Check the logs for details.'
-        }
-        always {
-            // Cleanup
-            sh 'docker system prune -f || true'
         }
     }
 }
